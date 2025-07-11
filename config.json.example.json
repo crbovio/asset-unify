@@ -1,0 +1,13 @@
+{
+"GOOGLE_KEYCHAIN_SERVICE": "google_keychain_service_name",
+"GOOGLE_KEYCHAIN_USER": "google_api_user",
+"SPREADSHEET_ID": "https://docs.google.com/spreadsheets/d/THIS_PORTION_HERE/edit?gid=0#gid=0",
+"SHEET_NAME": "Sheet1",
+"SCOPES": ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+"JAMF_URL": "https://your_jamf_url.jamfcloud.com",
+"JAMF_KEYCHAIN_SERVICE": "jamf_keychain_service_name",
+"STATIC_GROUP_ID": "static_group_id_number",
+"EXTENSION_ATTRIBUTE_NAME": "EA Computer Name",
+"JAMF_LDAP_SERVER_ID": "ldap_server_id",
+"LOG_FILE": "/Library/Logs/asset_unify.log"
+}
