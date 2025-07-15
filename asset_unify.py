@@ -135,15 +135,22 @@ def update_computer_name(token, comp_id, computer_xml, new_name):
 			name_elem = general.find("name")
 			if name_elem is not None:
 				old_name = name_elem.text
+				if old_name == new_name:
+					print(f"⚠️ Already named: {new_name}")
+					return False
+				print(f"🛠️ Changing name from '{old_name}' to '{new_name}'")
 				name_elem.text = new_name
 				updated_xml = ET.tostring(root, encoding="utf-8")
 				headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/xml"}
 				url = f"{JAMF_URL}/JSSResource/computers/id/{comp_id}"
 				resp = requests.put(url, headers=headers, data=updated_xml)
-				return resp.status_code in (200, 201)
-	except Exception:
-		pass
-	return False
+				if resp.status_code not in (200, 201):
+					print(f"❌ PUT failed: {resp.status_code} | {resp.text}")
+					return False
+				return True
+	except Exception as e:
+		print(f"❌ Exception: {e}")
+		return False
 
 def assign_user_to_computer(token, comp_id, username, full_name, email):
 	try:
