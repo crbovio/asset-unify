@@ -28,7 +28,8 @@ SCOPES = config["SCOPES"]
 JAMF_URL = config["JAMF_URL"]
 JAMF_KEYCHAIN_SERVICE = config["JAMF_KEYCHAIN_SERVICE"]
 STATIC_GROUP_ID = config["STATIC_GROUP_ID"]
-EXTENSION_ATTRIBUTE_NAME = config["EXTENSION_ATTRIBUTE_NAME"]
+REPORTED_NAME_EXTENSION_ATTRIBUTE_NAME = config["REPORTED_NAME_EXTENSION_ATTRIBUTE_NAME"]
+PRELOAD_NAME_EXTENSION_ATTRIBUTE_NAME = config["PRELOAD_NAME_EXTENSION_ATTRIBUTE_NAME"]
 JAMF_LDAP_SERVER_ID = config["JAMF_LDAP_SERVER_ID"]
 
 # LOGGING
@@ -292,7 +293,7 @@ def main():
 		elif comp_id in group_members:
 			if not xml:
 				xml = get_computer_xml(token, comp_id)
-			local_name = get_extension_attribute_value(xml, EXTENSION_ATTRIBUTE_NAME)
+			local_name = get_extension_attribute_value(xml, REPORTED_NAME_EXTENSION_ATTRIBUTE_NAME)
 			if local_name == desired_name:
 				if args.verbose or not args.force:
 					print(f"✅ EA match: {serial} | '{local_name}' — removing from group")
