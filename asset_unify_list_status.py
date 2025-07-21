@@ -28,6 +28,7 @@ JAMF_URL = config["JAMF_URL"]
 JAMF_KEYCHAIN_SERVICE = config["JAMF_KEYCHAIN_SERVICE"]
 PRELOAD_NAME_EA_ID = 52
 JAMF_LDAP_SERVER_ID = config["JAMF_LDAP_SERVER_ID"]
+STATIC_GROUP_ID = config["STATIC_GROUP_ID"]
 
 
 def load_google_credentials():
@@ -77,7 +78,7 @@ def get_all_computers(token):
     page = 0
     
     while True:
-        url = f"{JAMF_URL}/api/v1/computers-inventory?section=GENERAL&section=HARDWARE&section=USER_AND_LOCATION&section=EXTENSION_ATTRIBUTES&page={page}&page-size=100"
+        url = f"{JAMF_URL}/api/v1/computers-inventory?section=GENERAL&section=HARDWARE&section=USER_AND_LOCATION&section=EXTENSION_ATTRIBUTES&section=GROUP_MEMBERSHIPS&page={page}&page-size=100"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             break
@@ -96,14 +97,22 @@ def get_all_computers(token):
                     if values:
                         ea_name = values[0]
                     break
+            
+            static_group = ""
+            for group in comp.get("groupMemberships", []):
+                if group.get("groupId") == f"{STATIC_GROUP_ID}":
+                    static_group = "true"
+                    break
                 
+            
             if serial:
                 computers[serial] = {
                     "name": name,
                     "username": username,
                     "realName": realname,
                     "email": email,
-                    "ea_reported": ea_name
+                    "ea_reported": ea_name,
+                    "static_group": static_group
                 }
         if len(results) < 100:
             break
@@ -131,6 +140,12 @@ def get_all_preloads(token):
                 if ea.get("name") == "Preload Computer Name":
                     ea_name = ea.get("value", "")
                     break
+            
+            static_group = ""
+            for group in comp.get("groupMemberships", []):
+                if group.get("groupId") == f"{STATIC_GROUP_ID}":
+                    static_group = "true"
+                    break
 
             if serial:
                 preloads[serial] = {
@@ -138,7 +153,8 @@ def get_all_preloads(token):
                     "username": username,
                     "realname": realname,
                     "email": email,
-                    "ea_reported": ea_name
+                    "ea_reported": ea_name,
+                    "static_group": static_group
                 }
         if len(results) < 100:
             break
@@ -194,13 +210,14 @@ def main():
             print("Computer in Jamf inventory? Yes")
             print(f"  Computer name in Jamf: {comp['name']}")
             print(f"  Computer name reported by Mac: {comp['ea_reported']}")
+            print(f"  In renamer static group: {comp['static_group']}")
             if ldap_info:
                 print(f"  User name: {username}")
                 print(f"  Real name: {ldap_info['full_name']}")
                 print(f"  Email Address: {ldap_info['email']}")
             else:
                 print(f"  LDAP lookup failed or returned nothing.")
-        if serial in preload_computers:
+        elif serial in preload_computers:
             ldap_info = ldap_lookup(token, username) if username else None
             print(f"Serial number in Google Sheet: {serial}")
             print(f"Assigned name in Google Sheet: {entry['name']}")
@@ -208,6 +225,7 @@ def main():
             plcomp = preload_computers[serial]
             print("Computer in Jamf preload? Yes")
             print(f"  Computer to be named in Jamf: {plcomp['ea_reported']}")
+            print(f"  In renamer static group: {plcomp['static_group']}")
             if ldap_info:
                 print(f"  User name: {username}")
                 print(f"  Real name: {ldap_info['full_name']}")
