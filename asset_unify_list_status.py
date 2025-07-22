@@ -190,50 +190,95 @@ def ldap_lookup(token, username):
         print(f"❌ LDAP exception: {e}")
         return None    
     
-
+def compare_google_jamf_inventory(serial, entry, comp):
+    google_name = entry.get("name", "").strip()
+    comp_name = comp.get("name", "").strip()
+    
+    if google_name != comp_name:
+        print(f"⚠️ Name mismatch for {serial}:")
+        print(f"    Jamf name:    {comp_name}")
+        print(f"    Google Sheet name:    {google_name}")
+        return True
+    return False
+        
+def compare_google_jamf_preload(serial, entry, plcomp):
+    google_name = entry.get("name", "").strip()
+    preload_name = plcomp.get("ea_reported", "").strip()
+    
+    if google_name != preload_name:
+        print(f"⚠️ Name mismatch for {serial}:")
+        print(f"    Preload name: {preload_name}")
+        print(f"    Google Sheet name:    {google_name}")
+        return True
+    return False
+        
 def main():
     creds = load_google_credentials()
     sheet = get_sheet_mapping(creds)
     token, _ = get_jamf_token()
     jamf_computers = get_all_computers(token)
     preload_computers = get_all_preloads(token)
+    total_static_group = 0
+    printed_inventory_header = False
+    printed_preload_header = False
     
-
     for serial, entry in sheet.items():
+        google_name = entry.get("name", "").strip()
         username = entry.get("username", "").strip()
+        
         if serial in jamf_computers:
+            if compare_google_jamf_inventory(serial, entry, jamf_computers[serial]):
+                        if not printed_inventory_header:
+                            print("JAMF INVENTORY MISMATCHES:")
+                            printed_inventory_header = True                
             
-            print(f"Serial number in Google Sheet: {serial}")
-            print(f"Assigned name in Google Sheet: {entry['name']}")
-            print(f"Assigned username in Google Sheet: {entry['username']}")
-            comp = jamf_computers[serial]
-            print("Computer in Jamf inventory? Yes")
-            print(f"  Computer name in Jamf: {comp['name']}")
-            print(f"  Computer name reported by Mac: {comp['ea_reported']}")
-            print(f"  In renamer static group: {comp['static_group']}")
-            if ldap_info:
-                print(f"  User name: {username}")
-                print(f"  Real name: {ldap_info['full_name']}")
-                print(f"  Email Address: {ldap_info['email']}")
-            else:
-                print(f"  LDAP lookup failed or returned nothing.")
-        elif serial in preload_computers:
-            ldap_info = ldap_lookup(token, username) if username else None
-            print(f"Serial number in Google Sheet: {serial}")
-            print(f"Assigned name in Google Sheet: {entry['name']}")
-            print(f"Assigned username in Google Sheet: {entry['username']}")
-            plcomp = preload_computers[serial]
-            print("Computer in Jamf preload? Yes")
-            print(f"  Computer to be named in Jamf: {plcomp['ea_reported']}")
-            print(f"  In renamer static group: {plcomp['static_group']}")
-            if ldap_info:
-                print(f"  User name: {username}")
-                print(f"  Real name: {ldap_info['full_name']}")
-                print(f"  Email Address: {ldap_info['email']}")
-        else:
-            print("Computer not found: {serial}")
-            
-        print("-" * 50)
+        if serial in preload_computers:
+            if compare_google_jamf_preload(serial, entry, preload_computers[serial]):
+                        if not printed_preload_header:
+                            print("JAMF PRELOAD MISMATCHES:")
+                            printed_preload_header = True                
+    
+#   for serial, entry in sheet.items():
+#       username = entry.get("username", "").strip()
+##       ldap_info = ldap_lookup(token, username) if username else None
+#       
+#       if serial in preload_computers:
+#           compare_google_jamf_preload(serial, entry, preload_computers[serial])
+        
+#       if serial in jamf_computers:
+#           comp = jamf_computers[serial]
+#           print(f"Serial number in Google Sheet: {serial}")
+#           print(f"Assigned name in Google Sheet: {entry['name']}")
+#           print(f"Assigned username in Google Sheet: {entry['username']}")
+#           print("Computer in Jamf inventory? Yes")
+#           print(f"  Computer name in Jamf: {comp.get('name', '')}")
+#           print(f"  Computer name reported by Mac: {comp.get('ea_reported', '')}")
+#           if ldap_info:
+#               print(f"  User name: {username}")
+#               print(f"  Real name: {ldap_info['full_name']}")
+#               print(f"  Email Address: {ldap_info['email']}")
+#           else:
+#               print(f"  LDAP lookup failed or returned nothing.")
+#           if str(comp.get('static_group', '')).lower() == "true":
+#               print("In renamer static group")
+#               total_static_group += 1
+#       elif serial in preload_computers:
+#           plcomp = preload_computers[serial]
+#           print(f"Serial number in Google Sheet: {serial}")
+#           print(f"Assigned name in Google Sheet: {entry['name']}")
+#           print(f"Assigned username in Google Sheet: {entry['username']}")
+#           print("Computer in Jamf preload? Yes")
+#           print(f"  Computer to be named in Jamf: {plcomp['ea_reported']}")
+#           print(f"  In renamer static group: {plcomp['static_group']}")
+#           if ldap_info:
+#               print(f"  User name: {username}")
+#               print(f"  Real name: {ldap_info['full_name']}")
+#               print(f"  Email Address: {ldap_info['email']}")
+#       else:
+#           print(f" Computer not found: {serial}")
+#           
+#       print("-" * 50)
+#   print (f" Total in renamer group: {total_static_group}")
 
 if __name__ == "__main__":
     main()
