@@ -190,27 +190,27 @@ def ldap_lookup(token, username):
         print(f"❌ LDAP exception: {e}")
         return None    
     
-def compare_google_jamf_inventory(serial, entry, comp):
-    google_name = entry.get("name", "").strip()
-    comp_name = comp.get("name", "").strip()
-    
-    if google_name != comp_name:
-        print(f"⚠️ Name mismatch for {serial}:")
-        print(f"    Jamf name:    {comp_name}")
-        print(f"    Google Sheet name:    {google_name}")
-        return True
-    return False
-        
-def compare_google_jamf_preload(serial, entry, plcomp):
-    google_name = entry.get("name", "").strip()
-    preload_name = plcomp.get("ea_reported", "").strip()
-    
-    if google_name != preload_name:
-        print(f"⚠️ Name mismatch for {serial}:")
-        print(f"    Preload name: {preload_name}")
-        print(f"    Google Sheet name:    {google_name}")
-        return True
-    return False
+#def compare_google_jamf_inventory(serial, entry, comp):
+#   google_name = entry.get("name", "").strip()
+#   comp_name = comp.get("name", "").strip()
+#   
+#   if google_name != comp_name:
+#       print(f"⚠️ Name mismatch for {serial}:")
+#       print(f"    Jamf name:    {comp_name}")
+#       print(f"    Google Sheet name:    {google_name}")
+#       return True
+#   return False
+#       
+#def compare_google_jamf_preload(serial, entry, plcomp):
+#   google_name = entry.get("name", "").strip()
+#   preload_name = plcomp.get("ea_reported", "").strip()
+#   
+#   if google_name != preload_name:
+#       print(f"⚠️ Name mismatch for {serial}:")
+#       print(f"    Preload name: {preload_name}")
+#       print(f"    Google Sheet name:    {google_name}")
+#       return True
+#   return False
         
 def main():
     creds = load_google_credentials()
@@ -227,16 +227,24 @@ def main():
         username = entry.get("username", "").strip()
         
         if serial in jamf_computers:
-            if compare_google_jamf_inventory(serial, entry, jamf_computers[serial]):
-                        if not printed_inventory_header:
-                            print("JAMF INVENTORY MISMATCHES:")
-                            printed_inventory_header = True                
+            comp = jamf_computers[serial]
+            comp_name = comp.get("name", "").strip()
+                
+            if google_name != comp_name:
+                if not printed_inventory_header:
+                    print("\nJAMF INVENTORY MISMATCHES:")
+                    printed_inventory_header = True
+                    print(f"🔄 Rename needed: {serial} | '{comp_name}' → '{google_name}'") 
             
         if serial in preload_computers:
-            if compare_google_jamf_preload(serial, entry, preload_computers[serial]):
-                        if not printed_preload_header:
-                            print("JAMF PRELOAD MISMATCHES:")
-                            printed_preload_header = True                
+            plcomp = preload_computers[serial]
+            preload_name = plcomp.get("ea_reported", "").strip()
+            
+            if google_name != preload_name:
+                if not printed_preload_header:
+                    print("\nJAMF PRELOAD MISMATCHES:")
+                    printed_preload_header = True
+                    print(f"🔄 Rename needed: {serial} | '{preload_name}' → '{google_name}'") 
     
 #   for serial, entry in sheet.items():
 #       username = entry.get("username", "").strip()
