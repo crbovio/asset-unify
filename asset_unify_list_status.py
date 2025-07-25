@@ -85,6 +85,7 @@ def get_all_computers(token):
         results = resp.json().get("results", [])
         for comp in results:
             serial = comp.get("hardware", {}).get("serialNumber", "")
+            mac_id = comp.get("id", "")
             name = comp.get("general", {}).get("name", "")
             username = comp.get("userAndLocation", {}).get("username", "") or ""
             realname = comp.get("userAndLocation", {}).get("realname", "") or ""
@@ -107,6 +108,7 @@ def get_all_computers(token):
             
             if serial:
                 computers[serial] = {
+                    "mac_id": mac_id,
                     "name": name,
                     "username": username,
                     "realName": realname,
@@ -130,6 +132,7 @@ def get_all_preloads(token):
             break
         results = resp.json().get("results", [])
         for comp in results:
+            mac_id = comp.get("id", "")
             serial = comp.get("serialNumber", "")
             username = comp.get("username", "") or ""
             realname = comp.get("fullName", "") or ""
@@ -149,6 +152,7 @@ def get_all_preloads(token):
 
             if serial:
                 preloads[serial] = {
+                    "mac_id": mac_id,
                     "serial": serial,
                     "username": username,
                     "realname": realname,
@@ -188,30 +192,169 @@ def ldap_lookup(token, username):
         return None
     except Exception as e:
         print(f"❌ LDAP exception: {e}")
-        return None    
-    
-#def compare_google_jamf_inventory(serial, entry, comp):
-#   google_name = entry.get("name", "").strip()
-#   comp_name = comp.get("name", "").strip()
+        return None
 #   
-#   if google_name != comp_name:
-#       print(f"⚠️ Name mismatch for {serial}:")
-#       print(f"    Jamf name:    {comp_name}")
-#       print(f"    Google Sheet name:    {google_name}")
-#       return True
-#   return False
-#       
-#def compare_google_jamf_preload(serial, entry, plcomp):
-#   google_name = entry.get("name", "").strip()
-#   preload_name = plcomp.get("ea_reported", "").strip()
-#   
-#   if google_name != preload_name:
-#       print(f"⚠️ Name mismatch for {serial}:")
-#       print(f"    Preload name: {preload_name}")
-#       print(f"    Google Sheet name:    {google_name}")
-#       return True
-#   return False
+#def staticAdd(token, comp_id):
+#   try:
+#       headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
+#       url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
         
+        
+#def get_static_group(token, group_id):
+#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+#   headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+#   response = requests.get(url, headers=headers)
+#   
+#   if response.status_code != 200:
+#       print(f"❌ Failed to get static group {group_id}: HTTP {response.status_code}")
+#       print(f"↪ Response text:\n{response.text}\n")
+#       response.raise_for_status()  # Let it raise HTTPError for 404, 401, etc.
+#       
+#   try:
+#       return response.json()
+#   except Exception as e:
+#       print(f"❌ JSON decode error: {e}")
+#       print(f"↪ Raw response content:\n{response.text}")
+#       raise
+#       
+#
+#def add_to_static_group(token, group_id, computer_id):
+#   group = get_static_group(token, group_id)
+#   name = group["name"]
+#   current_ids = set(group["computerIds"])
+#   current_ids.add(computer_id)
+#   
+#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+#   headers = {
+#       "Authorization": f"Bearer {token}",
+#       "Content-Type": "application/json"
+#   }
+#   payload = {
+#       "groupId": group_id,
+#       "name": name,
+#       "isSmart": False,
+#       "computerIds": list(current_ids)
+#   }
+#   response = requests.put(url, headers=headers, json=payload)
+#   response.raise_for_status()
+#   print(f"✅ Added {computer_id} to static group {group_id}")
+#   
+#def remove_from_static_group(token, group_id, computer_id):
+#   group = get_static_group(token, group_id)
+#   name = group["name"]
+#   current_ids = set(group["computerIds"])
+#   if computer_id not in current_ids:
+#       print(f"ℹ️ Computer ID {computer_id} not in group {group_id}")
+#       return
+#   
+#   current_ids.remove(computer_id)
+#   
+#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+#   headers = {
+#       "Authorization": f"Bearer {token}",
+#       "Content-Type": "application/json"
+#   }
+#   payload = {
+#       "groupId": group_id,
+#       "name": name,
+#       "isSmart": False,
+#       "computerIds": list(current_ids)
+#   }
+#   response = requests.put(url, headers=headers, json=payload)
+#   response.raise_for_status()
+#   print(f"✅ Removed {computer_id} from static group {group_id}")
+    
+def get_static_group_xml(group_id, token):
+    url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+    headers = {
+        "Accept": "application/xml",
+        "Authorization": f"Bearer {token}"  # You can also use basic auth if needed
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.text
+    else:
+        print(f"❌ Error getting static group: {response.status_code}")
+        print(response.text)
+        return None
+    
+def remove_computer_from_group_xml(xml_data, comp_id):
+    root = ET.fromstring(xml_data)
+    computers = root.find("computers")
+    removed = False
+    
+    for computer in list(computers):  # Copy to avoid modifying while iterating
+        cid = computer.find("id")
+        if cid is not None and cid.text == str(comp_id):
+            computers.remove(computer)
+            removed = True
+            
+    return ET.tostring(root, encoding="utf-8"), removed
+
+def put_static_group_xml(group_id, token, updated_xml):
+    url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+    headers = {
+        "Content-Type": "application/xml",
+        "Accept": "application/xml",
+        "Authorization": f"Bearer {token}"
+    }
+    response = requests.put(url, headers=headers, data=updated_xml)
+    if response.status_code == 201:
+        print(f"✅ Successfully updated group {group_id}")
+    else:
+        print(f"❌ Failed to update group: {response.status_code}")
+        print(response.text)
+        
+def remove_from_static_group(token, group_id, comp_id):
+    xml_data = get_static_group_xml(group_id, token)
+    if not xml_data:
+        return
+    
+    updated_xml, removed = remove_computer_from_group_xml(xml_data, comp_id)
+    if not removed:
+        print(f"ℹ️ Computer {comp_id} not found in group {group_id}")
+        return
+    
+    put_static_group_xml(group_id, token, updated_xml)
+    
+    
+def add_computer_to_group_xml(xml_data, comp_id):
+    root = ET.fromstring(xml_data)
+    computers = root.find("computers")
+    
+    if computers is None:
+        # Create <computers> node if it doesn't exist
+        computers = ET.SubElement(root, "computers")
+        
+    found = False
+    for c in computers.findall("computer"):
+        id_elem = c.find("id")
+        if id_elem is not None and id_elem.text == str(comp_id):
+            found = True
+            break
+        
+    if not found:
+        new_comp = ET.SubElement(computers, "computer")
+        ET.SubElement(new_comp, "id").text = str(comp_id)
+        added = True
+    else:
+        added = False
+        
+    return ET.tostring(root, encoding="utf-8"), added
+
+def add_to_static_group(token, group_id, comp_id):
+    xml_data = get_static_group_xml(group_id, token)
+    if not xml_data:
+        return
+    
+    updated_xml, added = add_computer_to_group_xml(xml_data, comp_id)
+    if not added:
+        print(f"ℹ️ Computer {comp_id} is already in group {group_id}")
+        return
+    
+    put_static_group_xml(group_id, token, updated_xml)
+
+
 def main():
     creds = load_google_credentials()
     sheet = get_sheet_mapping(creds)
@@ -229,65 +372,58 @@ def main():
         if serial in jamf_computers:
             comp = jamf_computers[serial]
             comp_name = comp.get("name", "").strip()
-                
+            comp_id = comp.get("mac_id", "").strip()
+            static_group = comp.get("static_group", "").strip()
+            local_name_ea = comp.get("ea_reported", "")
+            comp_user = comp.get("username", "")
+
+            
             if google_name != comp_name:
-                if not printed_inventory_header:
-                    print("\nJAMF INVENTORY MISMATCHES:")
-                    printed_inventory_header = True
-                    print(f"🔄 Rename needed: {serial} | '{comp_name}' → '{google_name}'") 
+                print(f"🔄 Inventory Rename needed: {comp_id}: {serial} | '{comp_name}' → '{google_name}'")
+                
+                # Rename Mac
+                add_to_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
+                # Add to Static Group
+                # staticAdd(token, comp_id)
+                
+            if google_name == comp_name and google_name != local_name_ea and static_group:
+                print(f"⚠️ Name correct. {comp_id}:{serial}| {comp_name} Awaiting Inventory Update")
+                
+                # Do nothing
+                
+            if local_name_ea == google_name and static_group:
+                print(f"✅ Name correct and inventory updated. {comp_id}:{serial}| {comp_name} Removing from Static Group.")
+                
+                # Remove from Static Group
+                remove_from_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
+                # staticRemove(token, comp_id)
+                
+            if username != comp_user:
+                ldap_info = ldap_lookup(token, username) if username else None
+                ldap_full_name = ldap_info['full_name']
+                ldap_email = ldap_info['email']
+                if username and comp_user:
+                    print(f"❌ User mismatch. {comp_id}:{serial}| {comp_name} Should be assigned to {username}:{ldap_full_name}. Replacing user {comp_user} with {username}")
+                    
+                    # Remove user, full name, email from inventory record
+                    # updateUser(token, comp_id, username)
+                    
+                else:
+                    print(f"❌ {comp_id}:{serial}| {comp_name} should have no user assigned. Removing {comp_user}.")
+                    
+                    # Remove user, full name, email from inventory record
+                    # removeUser(token, comp_id)
             
         if serial in preload_computers:
             plcomp = preload_computers[serial]
             preload_name = plcomp.get("ea_reported", "").strip()
+            preload_id = plcomp.get("mac_id", "").strip()
+            
+            mismatch_messages = []
             
             if google_name != preload_name:
-                if not printed_preload_header:
-                    print("\nJAMF PRELOAD MISMATCHES:")
-                    printed_preload_header = True
-                    print(f"🔄 Rename needed: {serial} | '{preload_name}' → '{google_name}'") 
-    
-#   for serial, entry in sheet.items():
-#       username = entry.get("username", "").strip()
-##       ldap_info = ldap_lookup(token, username) if username else None
-#       
-#       if serial in preload_computers:
-#           compare_google_jamf_preload(serial, entry, preload_computers[serial])
-        
-#       if serial in jamf_computers:
-#           comp = jamf_computers[serial]
-#           print(f"Serial number in Google Sheet: {serial}")
-#           print(f"Assigned name in Google Sheet: {entry['name']}")
-#           print(f"Assigned username in Google Sheet: {entry['username']}")
-#           print("Computer in Jamf inventory? Yes")
-#           print(f"  Computer name in Jamf: {comp.get('name', '')}")
-#           print(f"  Computer name reported by Mac: {comp.get('ea_reported', '')}")
-#           if ldap_info:
-#               print(f"  User name: {username}")
-#               print(f"  Real name: {ldap_info['full_name']}")
-#               print(f"  Email Address: {ldap_info['email']}")
-#           else:
-#               print(f"  LDAP lookup failed or returned nothing.")
-#           if str(comp.get('static_group', '')).lower() == "true":
-#               print("In renamer static group")
-#               total_static_group += 1
-#       elif serial in preload_computers:
-#           plcomp = preload_computers[serial]
-#           print(f"Serial number in Google Sheet: {serial}")
-#           print(f"Assigned name in Google Sheet: {entry['name']}")
-#           print(f"Assigned username in Google Sheet: {entry['username']}")
-#           print("Computer in Jamf preload? Yes")
-#           print(f"  Computer to be named in Jamf: {plcomp['ea_reported']}")
-#           print(f"  In renamer static group: {plcomp['static_group']}")
-#           if ldap_info:
-#               print(f"  User name: {username}")
-#               print(f"  Real name: {ldap_info['full_name']}")
-#               print(f"  Email Address: {ldap_info['email']}")
-#       else:
-#           print(f" Computer not found: {serial}")
-#           
-#       print("-" * 50)
-#   print (f" Total in renamer group: {total_static_group}")
-
+                print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
+                
+                
 if __name__ == "__main__":
-    main()
-    
+	main()
