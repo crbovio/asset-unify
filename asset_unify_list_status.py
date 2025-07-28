@@ -360,27 +360,55 @@ def add_to_static_group(token, group_id, comp_id):
 
 # USER FUNCTIONS //
 
-def assign_user_to_inventory(token, comp_id, username, full_name, email)
+def assign_user_to_inventory(token, comp_id, username, full_name, email):
     headers = {"Authorization": f"Bearer {token}"}
-    url = f"{JAMF_URL}/v1/computers-inventory/{comp_id}"
+    url = f"{JAMF_URL}/v1/computers-inventory/{comp_id}&section=USER_AND_LOCATION"
     data = {
         "userAndLocation": {
             "username": username,
-            "realName": full_name,
-            "emailAddress": email
+            "realname": full_name,
+            "email": email
         }
     }
 
     resp = requests.patch(url, headers=headers, json=data)
     return resp.status_code in (200, 204)
 
-def clear_user_from_inventory(token, comp_id)
-    return assign_user_to_computer(token, comp_id, "", "", "")
+def clear_user_from_inventory(token, comp_id):
+    url = f"{JAMF_URL}/api/v1/computers-inventory/{comp_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    
+    payload = {
+        "userAndLocation": {
+            "username": None,
+            "realname": None,
+            "email": None
+        }
+    }
+    
+    response = requests.patch(url, headers=headers, json=payload)
+    
+    try:
+        json_response = response.json()
+    except Exception:
+        json_response = response.text
+        
+    if response.status_code == 200:
+        return True, json_response
+    else:
+        print(f"❌ Failed to clear user from inventory ID {comp_id}. Status: {response.status_code}")
+        print(f"Response: {json_response}")
+        return False, json_response
 
 
 # // USER FUNCTIONS
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="Run without prompts")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    args = parser.parse_args()
+    
     creds = load_google_credentials()
     sheet = get_sheet_mapping(creds)
     token, _ = get_jamf_token()
@@ -389,7 +417,8 @@ def main():
     total_static_group = 0
     printed_inventory_header = False
     printed_preload_header = False
-    args = parser.parse_args()
+    
+    inventory_user_updated = 0
     
     for serial, entry in sheet.items():
         google_name = entry.get("name", "").strip()
@@ -432,21 +461,26 @@ def main():
                 
             if username != comp_user:
                 ldap_info = ldap_lookup(token, username) if username else None
-                ldap_full_name = ldap_info['full_name']
-                ldap_email = ldap_info['email']
+                ldap_full_name = ldap_info['full_name'] if username else None
+                ldap_email = ldap_info['email'] if username else None
                 if username and comp_user:
                     print(f"❌ User mismatch. {comp_id}:{serial}| {comp_name} Should be assigned to {username}:{ldap_full_name}. Replacing user {comp_user} with {username}")
-                    
-                    # Remove user, full name, email from inventory record
-                    if args.force or input("Purge user (Y/N): ").strip().lower() == "y":
-                        clear_user_from_inventory(token, int(comp_id))
-                    # updateUser(token, comp_id, username)
-                    
-                else:
+                elif comp_user != "":
                     print(f"❌ {comp_id}:{serial}| {comp_name} should have no user assigned. Removing {comp_user}.")
-                    
-                    # Remove user, full name, email from inventory record
-                    # removeUser(token, comp_id)
+                    if args.verbose or not args.force:
+                        print (f"🧼 Purging user {comp_user} from {serial}:{comp_name}")
+                        if args.force or input("Purge user (Y/N): ").strip().lower() == "y":
+                            success, response = clear_user_from_inventory(token, comp_id)
+                            if success:
+                                print(f"✅ Cleared user from {serial}:{comp_name}")
+                                print(f"Response: {response}")
+                                inventory_user_updated += 1
+                            else:
+                                print(f"❌ Failed to clear user from {serial}:{comp_name}")
+                                
+                            if clear_user_from_inventory(token, comp_id):
+                                print (f"Running inventory clear for {comp_name}")
+                                inventory_user_updated += 1
             
         if serial in preload_computers:
             plcomp = preload_computers[serial]
@@ -457,6 +491,8 @@ def main():
             
             if google_name != preload_name:
                 print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
+                
+    print(f"Jamf User Updates: {inventory_user_updated}")
                 
                 
 if __name__ == "__main__":
