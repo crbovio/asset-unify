@@ -263,7 +263,9 @@ def ldap_lookup(token, username):
 #   response = requests.put(url, headers=headers, json=payload)
 #   response.raise_for_status()
 #   print(f"✅ Removed {computer_id} from static group {group_id}")
-    
+ 
+
+# STATIC GROUP FUNCTIONS //   
 def get_static_group_xml(group_id, token):
     url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
     headers = {
@@ -354,6 +356,29 @@ def add_to_static_group(token, group_id, comp_id):
     
     put_static_group_xml(group_id, token, updated_xml)
 
+# // STATIC GROUP FUNCTIONS
+
+# USER FUNCTIONS //
+
+def assign_user_to_inventory(token, comp_id, username, full_name, email)
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{JAMF_URL}/v1/computers-inventory/{comp_id}"
+    data = {
+        "userAndLocation": {
+            "username": username,
+            "realName": full_name,
+            "emailAddress": email
+        }
+    }
+
+    resp = requests.patch(url, headers=headers, json=data)
+    return resp.status_code in (200, 204)
+
+def clear_user_from_inventory(token, comp_id)
+    return assign_user_to_computer(token, comp_id, "", "", "")
+
+
+# // USER FUNCTIONS
 
 def main():
     creds = load_google_credentials()
@@ -364,6 +389,7 @@ def main():
     total_static_group = 0
     printed_inventory_header = False
     printed_preload_header = False
+    args = parser.parse_args()
     
     for serial, entry in sheet.items():
         google_name = entry.get("name", "").strip()
@@ -385,12 +411,18 @@ def main():
                 add_to_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
                 # Add to Static Group
                 # staticAdd(token, comp_id)
-                
+             
+
+            # If Jamf Inventory Name matches Google Sheets Name and is already in the Aseet Unify static group,
+            # but the extension attribute hasn't reported the updated name, inform that we're just awaiting awaiting 
+            # the computer to run an inventory update to reflect that the name has stuck. No action needed.
+
             if google_name == comp_name and google_name != local_name_ea and static_group:
                 print(f"⚠️ Name correct. {comp_id}:{serial}| {comp_name} Awaiting Inventory Update")
                 
-                # Do nothing
-                
+            # If Jamf Inventory Name matches Google Sheets Name and the reported name extension attribute also matches,
+            # the name has officially stuck and the computer will be removed from the static group.    
+
             if local_name_ea == google_name and static_group:
                 print(f"✅ Name correct and inventory updated. {comp_id}:{serial}| {comp_name} Removing from Static Group.")
                 
@@ -406,6 +438,8 @@ def main():
                     print(f"❌ User mismatch. {comp_id}:{serial}| {comp_name} Should be assigned to {username}:{ldap_full_name}. Replacing user {comp_user} with {username}")
                     
                     # Remove user, full name, email from inventory record
+                    if args.force or input("Purge user (Y/N): ").strip().lower() == "y":
+                        clear_user_from_inventory(token, int(comp_id))
                     # updateUser(token, comp_id, username)
                     
                 else:
