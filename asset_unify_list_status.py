@@ -72,6 +72,10 @@ def get_jamf_token():
     tok = response.json()
     return tok["access_token"], time.time() + tok["expires_in"] - 60
 
+#----------------------------------------------
+# JAMF COMPUTER COLLECTION START
+#----------------------------------------------
+
 def get_all_computers(token):
     headers = {"Authorization": f"Bearer {token}"}
     computers = {}
@@ -165,107 +169,13 @@ def get_all_preloads(token):
         page += 1
     return preloads
 
-def ldap_lookup(token, username):
-    try:
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
-        url = f"{JAMF_URL}/JSSResource/ldapservers/id/{JAMF_LDAP_SERVER_ID}/user/{username}"
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 404:
-            print("❌ LDAP user not found.")
-            return None
-        if resp.status_code != 200:
-            print(f"❌ LDAP error: {resp.text}")
-            return None
-        root = ET.fromstring(resp.text)
-        for user in root.findall("ldap_user"):
-            uid = user.findtext("uid") or ""
-            ldap_username = user.findtext("username") or ""
-            if uid == username or ldap_username == username:
-                full_name = user.findtext("realname") or user.findtext("real_name") or ""
-                email = user.findtext("email_address") or ""
-                return {
-                    "username": ldap_username,
-                    "full_name": full_name,
-                    "email": email
-                }
-        print("❌ LDAP user structure found but no match.")
-        return None
-    except Exception as e:
-        print(f"❌ LDAP exception: {e}")
-        return None
-#   
-#def staticAdd(token, comp_id):
-#   try:
-#       headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
-#       url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
-        
-        
-#def get_static_group(token, group_id):
-#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
-#   headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-#   response = requests.get(url, headers=headers)
-#   
-#   if response.status_code != 200:
-#       print(f"❌ Failed to get static group {group_id}: HTTP {response.status_code}")
-#       print(f"↪ Response text:\n{response.text}\n")
-#       response.raise_for_status()  # Let it raise HTTPError for 404, 401, etc.
-#       
-#   try:
-#       return response.json()
-#   except Exception as e:
-#       print(f"❌ JSON decode error: {e}")
-#       print(f"↪ Raw response content:\n{response.text}")
-#       raise
-#       
-#
-#def add_to_static_group(token, group_id, computer_id):
-#   group = get_static_group(token, group_id)
-#   name = group["name"]
-#   current_ids = set(group["computerIds"])
-#   current_ids.add(computer_id)
-#   
-#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
-#   headers = {
-#       "Authorization": f"Bearer {token}",
-#       "Content-Type": "application/json"
-#   }
-#   payload = {
-#       "groupId": group_id,
-#       "name": name,
-#       "isSmart": False,
-#       "computerIds": list(current_ids)
-#   }
-#   response = requests.put(url, headers=headers, json=payload)
-#   response.raise_for_status()
-#   print(f"✅ Added {computer_id} to static group {group_id}")
-#   
-#def remove_from_static_group(token, group_id, computer_id):
-#   group = get_static_group(token, group_id)
-#   name = group["name"]
-#   current_ids = set(group["computerIds"])
-#   if computer_id not in current_ids:
-#       print(f"ℹ️ Computer ID {computer_id} not in group {group_id}")
-#       return
-#   
-#   current_ids.remove(computer_id)
-#   
-#   url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
-#   headers = {
-#       "Authorization": f"Bearer {token}",
-#       "Content-Type": "application/json"
-#   }
-#   payload = {
-#       "groupId": group_id,
-#       "name": name,
-#       "isSmart": False,
-#       "computerIds": list(current_ids)
-#   }
-#   response = requests.put(url, headers=headers, json=payload)
-#   response.raise_for_status()
-#   print(f"✅ Removed {computer_id} from static group {group_id}")
- 
+#----------------------------------------------
+# JAMF COMPUTER COLLECTION END
+#----------------------------------------------
 
-# STATIC GROUP FUNCTIONS //   
+#----------------------------------------------
+# USER FUNCTIONS START
+#----------------------------------------------
 def get_static_group_xml(group_id, token):
     url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
     headers = {
@@ -356,14 +266,48 @@ def add_to_static_group(token, group_id, comp_id):
     
     put_static_group_xml(group_id, token, updated_xml)
 
-# // STATIC GROUP FUNCTIONS
+#----------------------------------------------
+# STATIC GROUP FUNCTIONS END
+#----------------------------------------------
 
-# USER FUNCTIONS //
+#----------------------------------------------
+# USER FUNCTIONS START
+#----------------------------------------------
+
+def ldap_lookup(token, username):
+    try:
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
+        url = f"{JAMF_URL}/JSSResource/ldapservers/id/{JAMF_LDAP_SERVER_ID}/user/{username}"
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 404:
+            print("❌ LDAP user not found.")
+            return None
+        if resp.status_code != 200:
+            print(f"❌ LDAP error: {resp.text}")
+            return None
+        root = ET.fromstring(resp.text)
+        for user in root.findall("ldap_user"):
+            uid = user.findtext("uid") or ""
+            ldap_username = user.findtext("username") or ""
+            if uid == username or ldap_username == username:
+                full_name = user.findtext("realname") or user.findtext("real_name") or ""
+                email = user.findtext("email_address") or ""
+                return {
+                    "username": ldap_username,
+                    "full_name": full_name,
+                    "email": email
+                }
+        print("❌ LDAP user structure found but no match.")
+        return None
+    except Exception as e:
+        print(f"❌ LDAP exception: {e}")
+        return None
+
 
 def assign_user_to_inventory(token, comp_id, username, full_name, email):
     headers = {"Authorization": f"Bearer {token}"}
-    url = f"{JAMF_URL}/v1/computers-inventory/{comp_id}&section=USER_AND_LOCATION"
-    data = {
+    url = f"{JAMF_URL}/v1/computers-inventory-detail/{comp_id}"
+    payload = {
         "userAndLocation": {
             "username": username,
             "realname": full_name,
@@ -371,23 +315,23 @@ def assign_user_to_inventory(token, comp_id, username, full_name, email):
         }
     }
 
-    resp = requests.patch(url, headers=headers, json=data)
+    resp = requests.patch(url, headers=headers, json=payload)
     return resp.status_code in (200, 204)
 
 def clear_user_from_inventory(token, comp_id):
-    url = f"{JAMF_URL}/api/v1/computers-inventory/{comp_id}"
+    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
     payload = {
         "userAndLocation": {
-            "username": None,
-            "realname": None,
-            "email": None
+            "username": "",
+            "realname": "",
+            "email": ""
         }
     }
     
     response = requests.patch(url, headers=headers, json=payload)
-    
+
     try:
         json_response = response.json()
     except Exception:
@@ -401,7 +345,61 @@ def clear_user_from_inventory(token, comp_id):
         return False, json_response
 
 
-# // USER FUNCTIONS
+#----------------------------------------------
+# USER FUNCTIONS END
+#----------------------------------------------
+
+#----------------------------------------------
+# COMPUTER RENAME START
+#----------------------------------------------
+def inventory_rename(token, comp_id, new_comp_name):
+    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+                "general": {
+                    "name": new_comp_name
+                }
+            }
+
+    resp = requests.patch(url, headers=headers, json=payload)
+    return resp.status_code in (200, 204)
+
+#----------------------------------------------
+# COMPUTER RENAME END
+#----------------------------------------------
+
+#----------------------------------------------
+# PRELOAD UPDATE START
+#----------------------------------------------
+
+def create_preload(token, serial, pl_name, username, full_name, email, asset):
+    url = f"{JAMF_URL}/api/v2/inventory-preload/records"
+    payload = {
+        "device-type": "Computer",
+        "serialNumber": serial,
+            "username": username,
+            "fullName": full_name,
+        "emailAddress": email,
+            "assetTag": asset
+        }
+
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json"    
+    }
+    response = requests.post(url, json=payload, headers=headers)
+
+    print(response.text)
+    
+
+#----------------------------------------------
+# PRELOAD UPDATE END
+#----------------------------------------------
+
+# def preload_update(token, pl_id, pl_ea, pl_username, pl_realname, pl_email):
+
+
+# // COMPUTER RENAME FUNCTIONS
 
 def main():
     parser = argparse.ArgumentParser()
@@ -419,6 +417,7 @@ def main():
     printed_preload_header = False
     
     inventory_user_updated = 0
+    inventory_name_updated = 0
     
     for serial, entry in sheet.items():
         google_name = entry.get("name", "").strip()
@@ -435,12 +434,15 @@ def main():
             
             if google_name != comp_name:
                 print(f"🔄 Inventory Rename needed: {comp_id}: {serial} | '{comp_name}' → '{google_name}'")
-                
-                # Rename Mac
-                add_to_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
-                # Add to Static Group
-                # staticAdd(token, comp_id)
-             
+
+                # Rename Mac to Google name. Add computer to static group.
+                if args.verbose or not args.force:
+                    if args.force or input("Update computer name? (Y/N): ").strip().lower() == "y":
+                        if inventory_rename(token, comp_id, google_name):
+                            print(f" {serial}: {comp_name} changed to {google_name}")
+                            add_to_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
+                            inventory_name_updated += 1
+
 
             # If Jamf Inventory Name matches Google Sheets Name and is already in the Aseet Unify static group,
             # but the extension attribute hasn't reported the updated name, inform that we're just awaiting awaiting 
@@ -457,30 +459,30 @@ def main():
                 
                 # Remove from Static Group
                 remove_from_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
-                # staticRemove(token, comp_id)
                 
             if username != comp_user:
                 ldap_info = ldap_lookup(token, username) if username else None
                 ldap_full_name = ldap_info['full_name'] if username else None
                 ldap_email = ldap_info['email'] if username else None
+
+                # If Jamf assigned username doesn't match the Google assigned username, assign to Google username
                 if username and comp_user:
                     print(f"❌ User mismatch. {comp_id}:{serial}| {comp_name} Should be assigned to {username}:{ldap_full_name}. Replacing user {comp_user} with {username}")
+                    if args.verbose or not args.force:
+                        if args.force or input("Replace user (Y/N): ").strip().lower() == "y":
+                           if assign_user_from_inventory(token, comp_id, username, ldap_full_name, ldap_email):
+                            print(f"Replacing {comp_user} from {serial}:{comp_name} with {username}:{ldap_full_name}")
+                            inventory_user_updated += 1
+
+                # If there's no Google assigned username, clear username in Jamf
                 elif comp_user != "":
                     print(f"❌ {comp_id}:{serial}| {comp_name} should have no user assigned. Removing {comp_user}.")
                     if args.verbose or not args.force:
                         print (f"🧼 Purging user {comp_user} from {serial}:{comp_name}")
                         if args.force or input("Purge user (Y/N): ").strip().lower() == "y":
-                            success, response = clear_user_from_inventory(token, comp_id)
-                            if success:
-                                print(f"✅ Cleared user from {serial}:{comp_name}")
-                                print(f"Response: {response}")
-                                inventory_user_updated += 1
-                            else:
-                                print(f"❌ Failed to clear user from {serial}:{comp_name}")
-                                
-                            if clear_user_from_inventory(token, comp_id):
-                                print (f"Running inventory clear for {comp_name}")
-                                inventory_user_updated += 1
+                           if clear_user_from_inventory(token, comp_id):
+                            print(f"Clearing {comp_user} from {serial}:{comp_name}")
+                            inventory_user_updated += 1
             
         if serial in preload_computers:
             plcomp = preload_computers[serial]
@@ -491,7 +493,8 @@ def main():
             
             if google_name != preload_name:
                 print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
-                
+    
+    print(f"Jamf Inventory Name Updates: {inventory_name_updated}")  
     print(f"Jamf User Updates: {inventory_user_updated}")
                 
                 
