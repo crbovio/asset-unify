@@ -50,16 +50,25 @@ def get_sheet_mapping(credentials):
     col_serial = header.index("Serial Number")
     col_name = header.index("Computer Name")
     col_user = header.index("User ID") if "User ID" in header else None
+    col_asset = header.index("Asset Tag") if "Asset Tag" in header else None
 
     mapping = {}
     for row in rows:
-        if len(row) <= max(col_serial, col_name):
+        required_indices = [col_serial, col_name]
+        if col_asset is not None:
+            required_indices.append(col_asset)
+        if col_user is not None:
+            required_indices.append(col_user)
+            
+        if len(row) <= max(required_indices):
             continue
         serial = row[col_serial].strip()
         desired_name = row[col_name].strip()
         username = row[col_user].strip() if col_user is not None and len(row) > col_user else ""
+        asset = row[col_asset].strip() if col_asset is not None and len(row) > col_asset else ""
+        
         if serial:
-            mapping[serial] = {"name": desired_name, "username": username}
+            mapping[serial] = {"name": desired_name, "username": username, "asset": asset}
     return mapping
 
 def get_jamf_token():
@@ -89,6 +98,7 @@ def get_all_computers(token):
         results = resp.json().get("results", [])
         for comp in results:
             serial = comp.get("hardware", {}).get("serialNumber", "")
+            asset = comp.get("general", {}).get("assetTag", "")
             mac_id = comp.get("id", "")
             name = comp.get("general", {}).get("name", "")
             username = comp.get("userAndLocation", {}).get("username", "") or ""
@@ -113,6 +123,7 @@ def get_all_computers(token):
             if serial:
                 computers[serial] = {
                     "mac_id": mac_id,
+                    "asset": asset,
                     "name": name,
                     "username": username,
                     "realName": realname,
@@ -141,6 +152,7 @@ def get_all_preloads(token):
             username = comp.get("username", "") or ""
             realname = comp.get("fullName", "") or ""
             email = comp.get("emailAddress", "") or ""
+            asset = comp.get("assetTag", "") or ""
             ea_name = ""
             
             for ea in comp.get("extensionAttributes", []):
@@ -157,6 +169,7 @@ def get_all_preloads(token):
             if serial:
                 preloads[serial] = {
                     "mac_id": mac_id,
+                    "asset": asset,
                     "serial": serial,
                     "username": username,
                     "realname": realname,
@@ -174,7 +187,7 @@ def get_all_preloads(token):
 #----------------------------------------------
 
 #----------------------------------------------
-# USER FUNCTIONS START
+# STATIC GROUP FUNCTIONS START
 #----------------------------------------------
 def get_static_group_xml(group_id, token):
     url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
@@ -304,7 +317,7 @@ def ldap_lookup(token, username):
         return None
 
 
-def assign_user_to_inventory(token, comp_id, username, full_name, email):
+def assign_user_from_inventory(token, comp_id, username, full_name, email):
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{JAMF_URL}/v1/computers-inventory-detail/{comp_id}"
     payload = {
@@ -375,28 +388,61 @@ def inventory_rename(token, comp_id, new_comp_name):
 def create_preload(token, serial, pl_name, username, full_name, email, asset):
     url = f"{JAMF_URL}/api/v2/inventory-preload/records"
     payload = {
-        "device-type": "Computer",
+        "deviceType": "Computer",
         "serialNumber": serial,
             "username": username,
             "fullName": full_name,
         "emailAddress": email,
-            "assetTag": asset
+            "assetTag": asset,
+            "extensionAttributes": [
+                    {
+                        "name": "Preload Computer Name",
+                        "value": pl_name
+                    }
+                ]
         }
+    print(f"{payload}")
 
     headers = {
         "accept": "application/json",
-        "content-type": "application/json"    
+        "content-type": "application/json",
+        "Authorization": f"Bearer {token}"
     }
     response = requests.post(url, json=payload, headers=headers)
+    return response.status_code == 201
 
-    print(response.text)
+def preload_update(token, preload_id, serial, pl_name, username, full_name, email, asset):
     
+    url = f"{JAMF_URL}/api/v2/inventory-preload/records/{preload_id}"
+    
+    payload = { 
+        "deviceType": "Computer",
+        "serialNumber": serial,
+            "username": username,
+            "fullName": full_name,
+        "emailAddress": email,
+            "assetTag": asset,
+            "extensionAttributes": [
+                    {
+                        "name": "Preload Computer Name",
+                        "value": pl_name
+                    }
+                ]
+    }
+    
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": f"Bearer {token}"
+    }
+    
+    response = requests.put(url, json=payload, headers=headers)
+    return response.status_code == 201
 
 #----------------------------------------------
 # PRELOAD UPDATE END
 #----------------------------------------------
 
-# def preload_update(token, pl_id, pl_ea, pl_username, pl_realname, pl_email):
 
 
 # // COMPUTER RENAME FUNCTIONS
@@ -418,10 +464,13 @@ def main():
     
     inventory_user_updated = 0
     inventory_name_updated = 0
+    preload_record_updated = 0
+    preload_record_created = 0
     
     for serial, entry in sheet.items():
         google_name = entry.get("name", "").strip()
         username = entry.get("username", "").strip()
+        asset = entry.get("asset", "").strip()
         
         if serial in jamf_computers:
             comp = jamf_computers[serial]
@@ -484,18 +533,60 @@ def main():
                             print(f"Clearing {comp_user} from {serial}:{comp_name}")
                             inventory_user_updated += 1
             
-        if serial in preload_computers:
-            plcomp = preload_computers[serial]
-            preload_name = plcomp.get("ea_reported", "").strip()
-            preload_id = plcomp.get("mac_id", "").strip()
+            if serial in preload_computers:
+                plcomp = preload_computers[serial]
+                preload_name = plcomp.get("ea_reported", "").strip()
+                preload_id = plcomp.get("mac_id", "").strip()
+                preload_asset = plcomp.get("asset", "").strip()
+                preload_user = plcomp.get("username", "").strip()
+                
             
-            mismatch_messages = []
-            
-            if google_name != preload_name:
-                print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
+                if (google_name != preload_name) or (username != preload_user) or (preload_asset != asset):
+                    if username:
+                        ldap_info = ldap_lookup(token, username) if username else None
+                        ldap_full_name = ldap_info['full_name'] if username else None
+                        ldap_email = ldap_info['email'] if username else None
+                        print(f"🔄 Preload Rename needed: {preload_id}:{preload_name}:{serial} assigned to user {preload_user} | '{preload_name}' → '{google_name}' assigned to user '{username}'")
+                         
+                        if args.verbose or not args.force:
+                            if args.force or input(f"Update Preload Record? (Y/N): ").strip().lower() == "y":
+                                if preload_update(token, preload_id, serial, google_name, username, ldap_full_name, ldap_email, asset):
+                                    print (f"Updating preload record for {preload_name}: {serial}")
+                                    preload_record_updated += 1
+                                    
+                    else:    
+                        print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
+                        if args.verbose or not args.force:
+                            if args.force or input(f"Update Preload Record? (Y/N): ").strip().lower() == "y":
+                                if preload_update(token, preload_id, serial, google_name, None, None, None, asset):
+                                    print (f"Updating preload record for {preload_name}: {serial}")
+                                    preload_record_updated += 1
+                                    
+
     
+            else:
+                
+                print(f"❌ Preload doesn't exist for {serial}.")
+                if username:
+                    ldap_info = ldap_lookup(token, username) if username else None
+                    ldap_full_name = ldap_info['full_name'] if username else None
+                    ldap_email = ldap_info['email'] if username else None
+                    if args.verbose or not args.force:
+                        if args.force or input(f"Create Preload Record for {serial} for user {username}: {ldap_full_name}? (Y/N): ").strip().lower() == "y":
+                            if create_preload(token, serial, google_name, username, ldap_full_name, ldap_email, asset):
+                                print (f"Creating inventory record for {preload_name}: {serial}")
+                                preload_record_created += 1
+                else:
+                    if args.verbose or not args.force:
+                        if args.force or input("Create Preload Record? (Y/N): ").strip().lower() == "y":
+                            if create_preload(token, serial, google_name, None, None, None, asset):
+                                print (f"Creating preload record for {preload_name}: {serial}")
+                                preload_record_created += 1
+                
     print(f"Jamf Inventory Name Updates: {inventory_name_updated}")  
     print(f"Jamf User Updates: {inventory_user_updated}")
+    print(f"Preload Inventory Updates: {preload_record_updated}")
+    print(f"Preload Inventory Created: {preload_record_created}")
                 
                 
 if __name__ == "__main__":
