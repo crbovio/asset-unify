@@ -15,6 +15,12 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from urllib.parse import quote
 
+def verbose_log(serial, name, username, asset, label="▶"):
+    print(f"{label} SERIAL: {serial}")
+    print(f"   ↪ Name      : {name}")
+    print(f"   ↪ Username  : {username}")
+    print(f"   ↪ Asset Tag : {asset}")
+
 # Load config
 with open("config.json") as f:
     config = json.load(f)
@@ -60,12 +66,15 @@ def get_sheet_mapping(credentials):
         if col_user is not None:
             required_indices.append(col_user)
             
-        if len(row) <= max(required_indices):
+        # 👇 Pad short rows with empty strings
+        row += [""] * (max(required_indices) + 1 - len(row))
+        
+        serial = row[col_serial].strip().upper()
+        if serial == "EXIT":
             continue
-        serial = row[col_serial].strip()
         desired_name = row[col_name].strip()
-        username = row[col_user].strip() if col_user is not None and len(row) > col_user else ""
-        asset = row[col_asset].strip() if col_asset is not None and len(row) > col_asset else ""
+        username = row[col_user].strip() if col_user is not None else ""
+        asset = row[col_asset].strip() if col_asset is not None else ""
         
         if serial:
             mapping[serial] = {"name": desired_name, "username": username, "asset": asset}
@@ -287,170 +296,133 @@ def add_to_static_group(token, group_id, comp_id):
 # USER FUNCTIONS START
 #----------------------------------------------
 
+# --------------- JAMF LDAP + INVENTORY OPS -----------
+    
 def ldap_lookup(token, username):
+    url = f"{JAMF_URL}/JSSResource/ldapservers/id/{JAMF_LDAP_SERVER_ID}/user/{username}"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
+    resp = requests.get(url, headers=headers)
+    
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        print(f"❌ LDAP error: {resp.status_code} - {resp.text}")
+        return None
+    
     try:
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
-        url = f"{JAMF_URL}/JSSResource/ldapservers/id/{JAMF_LDAP_SERVER_ID}/user/{username}"
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 404:
-            print("❌ LDAP user not found.")
-            return None
-        if resp.status_code != 200:
-            print(f"❌ LDAP error: {resp.text}")
-            return None
         root = ET.fromstring(resp.text)
         for user in root.findall("ldap_user"):
-            uid = user.findtext("uid") or ""
-            ldap_username = user.findtext("username") or ""
-            if uid == username or ldap_username == username:
-                full_name = user.findtext("realname") or user.findtext("real_name") or ""
-                email = user.findtext("email_address") or ""
-                return {
-                    "username": ldap_username,
-                    "full_name": full_name,
-                    "email": email
-                }
-        print("❌ LDAP user structure found but no match.")
-        return None
+            return {
+                "username": user.findtext("username") or "",
+                "full_name": user.findtext("realname") or user.findtext("real_name") or "",
+                "email": user.findtext("email_address") or ""
+            }
     except Exception as e:
-        print(f"❌ LDAP exception: {e}")
+        print(f"❌ LDAP parse error: {e}")
         return None
-
+    
+def inventory_rename(token, comp_id, new_name):
+    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = { "general": { "name": new_name } }
+    resp = requests.patch(url, headers=headers, json=payload)
+    return resp.status_code in (200, 204)
 
 def assign_user_from_inventory(token, comp_id, username, full_name, email):
+    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
     headers = {"Authorization": f"Bearer {token}"}
-    url = f"{JAMF_URL}/v1/computers-inventory-detail/{comp_id}"
-    payload = {
-        "userAndLocation": {
-            "username": username,
-            "realname": full_name,
-            "email": email
-        }
-    }
-
+    payload = { "userAndLocation": { "username": username, "realname": full_name, "email": email } }
     resp = requests.patch(url, headers=headers, json=payload)
     return resp.status_code in (200, 204)
 
 def clear_user_from_inventory(token, comp_id):
     url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    
-    payload = {
-        "userAndLocation": {
-            "username": "",
-            "realname": "",
-            "email": ""
-        }
-    }
-    
-    response = requests.patch(url, headers=headers, json=payload)
-
-    try:
-        json_response = response.json()
-    except Exception:
-        json_response = response.text
-        
-    if response.status_code == 200:
-        return True, json_response
-    else:
-        print(f"❌ Failed to clear user from inventory ID {comp_id}. Status: {response.status_code}")
-        print(f"Response: {json_response}")
-        return False, json_response
-
-
-#----------------------------------------------
-# USER FUNCTIONS END
-#----------------------------------------------
-
-#----------------------------------------------
-# COMPUTER RENAME START
-#----------------------------------------------
-def inventory_rename(token, comp_id, new_comp_name):
-    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {
-                "general": {
-                    "name": new_comp_name
-                }
-            }
-
+    payload = { "userAndLocation": { "username": "", "realname": "", "email": "" } }
     resp = requests.patch(url, headers=headers, json=payload)
     return resp.status_code in (200, 204)
 
-#----------------------------------------------
-# COMPUTER RENAME END
-#----------------------------------------------
+# --------------- PRELOAD OPS -------------------------
 
-#----------------------------------------------
-# PRELOAD UPDATE START
-#----------------------------------------------
-
-def create_preload(token, serial, pl_name, username, full_name, email, asset):
-    url = f"{JAMF_URL}/api/v2/inventory-preload/records"
+def preload_update(token, preload_id, serial, name, username, full_name, email, asset):
+    url = f"{JAMF_URL}/api/v2/inventory-preload/records/{preload_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {
         "deviceType": "Computer",
         "serialNumber": serial,
-            "username": username,
-            "fullName": full_name,
+        "username": username,
+        "fullName": full_name,
         "emailAddress": email,
-            "assetTag": asset,
-            "extensionAttributes": [
-                    {
-                        "name": "Preload Computer Name",
-                        "value": pl_name
-                    }
-                ]
-        }
-    print(f"{payload}")
-
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "Authorization": f"Bearer {token}"
+        "assetTag": asset,
+        "extensionAttributes": [{"name": "Preload Computer Name", "value": name}]
     }
-    response = requests.post(url, json=payload, headers=headers)
-    return response.status_code == 201
+    resp = requests.put(url, headers=headers, json=payload)
+    return resp.status_code == 201
 
-def preload_update(token, preload_id, serial, pl_name, username, full_name, email, asset):
-    
-    url = f"{JAMF_URL}/api/v2/inventory-preload/records/{preload_id}"
-    
-    payload = { 
+def create_preload(token, serial, name, username, full_name, email, asset):
+    url = f"{JAMF_URL}/api/v2/inventory-preload/records"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
         "deviceType": "Computer",
         "serialNumber": serial,
-            "username": username,
-            "fullName": full_name,
+        "username": username,
+        "fullName": full_name,
         "emailAddress": email,
-            "assetTag": asset,
-            "extensionAttributes": [
-                    {
-                        "name": "Preload Computer Name",
-                        "value": pl_name
-                    }
-                ]
+        "assetTag": asset,
+        "extensionAttributes": [{"name": "Preload Computer Name", "value": name}]
     }
+    resp = requests.post(url, headers=headers, json=payload)
+    return resp.status_code == 201
+
+# --------------- STATIC GROUP OPS --------------------
+
+def get_static_group_xml(group_id, token):
+    url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/xml"}
+    resp = requests.get(url, headers=headers)
+    return resp.text if resp.status_code == 200 else None
+
+def modify_group_xml(xml_data, comp_id, action="add"):
+    root = ET.fromstring(xml_data)
+    computers = root.find("computers") or ET.SubElement(root, "computers")
+    exists = any(c.find("id").text == str(comp_id) for c in computers.findall("computer"))
     
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "authorization": f"Bearer {token}"
-    }
-    
-    response = requests.put(url, json=payload, headers=headers)
-    return response.status_code == 201
+    if action == "add" and not exists:
+        new_c = ET.SubElement(computers, "computer")
+        ET.SubElement(new_c, "id").text = str(comp_id)
+        return ET.tostring(root, encoding="utf-8"), True
+    elif action == "remove" and exists:
+        for c in list(computers):
+            if c.find("id").text == str(comp_id):
+                computers.remove(c)
+        return ET.tostring(root, encoding="utf-8"), True
+    return xml_data.encode("utf-8"), False
 
-#----------------------------------------------
-# PRELOAD UPDATE END
-#----------------------------------------------
-
-
-
-# // COMPUTER RENAME FUNCTIONS
-
+def update_static_group(group_id, token, comp_id, action):
+    xml_data = get_static_group_xml(group_id, token)
+    if not xml_data:
+        print(f"❌ Could not fetch XML for group {group_id}")
+        return
+    updated_xml, changed = modify_group_xml(xml_data, comp_id, action)
+    if changed:
+        url = f"{JAMF_URL}/JSSResource/computergroups/id/{group_id}"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/xml"}
+        resp = requests.put(url, headers=headers, data=updated_xml)
+        status = "added to" if action == "add" else "removed from"
+        if resp.status_code == 201:
+            print(f"✅ {comp_id} {status} group {group_id}")
+        else:
+            print(f"❌ Failed to update group {group_id}: {resp.status_code}")
+    else:
+        print(f"ℹ️ {comp_id} already correct in group {group_id}")
+        
+# --------------- MAIN LOGIC --------------------------
+        
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true", help="Run without prompts")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions only")
     args = parser.parse_args()
     
     creds = load_google_credentials()
@@ -458,136 +430,98 @@ def main():
     token, _ = get_jamf_token()
     jamf_computers = get_all_computers(token)
     preload_computers = get_all_preloads(token)
-    total_static_group = 0
-    printed_inventory_header = False
-    printed_preload_header = False
     
-    inventory_user_updated = 0
-    inventory_name_updated = 0
-    preload_record_updated = 0
-    preload_record_created = 0
+    print(f"Processing {len(sheet)} rows from Google Sheet")
+    
+    updates = {
+        "inventory_name_updated": 0,
+        "inventory_user_updated": 0,
+        "preload_record_updated": 0,
+        "preload_record_created": 0
+    }
     
     for serial, entry in sheet.items():
-        google_name = entry.get("name", "").strip()
-        username = entry.get("username", "").strip()
-        asset = entry.get("asset", "").strip()
+        google_name = entry["name"]
+        username = entry["username"]
+        asset = entry["asset"]
         
-        if serial in jamf_computers:
-            comp = jamf_computers[serial]
-            comp_name = comp.get("name", "").strip()
-            comp_id = comp.get("mac_id", "").strip()
-            static_group = comp.get("static_group", "").strip()
-            local_name_ea = comp.get("ea_reported", "")
-            comp_user = comp.get("username", "")
-
-            
-            if google_name != comp_name:
-                print(f"🔄 Inventory Rename needed: {comp_id}: {serial} | '{comp_name}' → '{google_name}'")
-
-                # Rename Mac to Google name. Add computer to static group.
-                if args.verbose or not args.force:
-                    if args.force or input("Update computer name? (Y/N): ").strip().lower() == "y":
-                        if inventory_rename(token, comp_id, google_name):
-                            print(f" {serial}: {comp_name} changed to {google_name}")
-                            add_to_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
-                            inventory_name_updated += 1
-
-
-            # If Jamf Inventory Name matches Google Sheets Name and is already in the Aseet Unify static group,
-            # but the extension attribute hasn't reported the updated name, inform that we're just awaiting awaiting 
-            # the computer to run an inventory update to reflect that the name has stuck. No action needed.
-
-            if google_name == comp_name and google_name != local_name_ea and static_group:
-                print(f"⚠️ Name correct. {comp_id}:{serial}| {comp_name} Awaiting Inventory Update")
-                
-            # If Jamf Inventory Name matches Google Sheets Name and the reported name extension attribute also matches,
-            # the name has officially stuck and the computer will be removed from the static group.    
-
-            if local_name_ea == google_name and static_group:
-                print(f"✅ Name correct and inventory updated. {comp_id}:{serial}| {comp_name} Removing from Static Group.")
-                
-                # Remove from Static Group
-                remove_from_static_group(token, int(STATIC_GROUP_ID), int(comp_id))
-                
-            if username != comp_user:
-                ldap_info = ldap_lookup(token, username) if username else None
-                ldap_full_name = ldap_info['full_name'] if username else None
-                ldap_email = ldap_info['email'] if username else None
-
-                # If Jamf assigned username doesn't match the Google assigned username, assign to Google username
-                if username and comp_user:
-                    print(f"❌ User mismatch. {comp_id}:{serial}| {comp_name} Should be assigned to {username}:{ldap_full_name}. Replacing user {comp_user} with {username}")
-                    if args.verbose or not args.force:
-                        if args.force or input("Replace user (Y/N): ").strip().lower() == "y":
-                           if assign_user_from_inventory(token, comp_id, username, ldap_full_name, ldap_email):
-                            print(f"Replacing {comp_user} from {serial}:{comp_name} with {username}:{ldap_full_name}")
-                            inventory_user_updated += 1
-
-                # If there's no Google assigned username, clear username in Jamf
-                elif comp_user != "":
-                    print(f"❌ {comp_id}:{serial}| {comp_name} should have no user assigned. Removing {comp_user}.")
-                    if args.verbose or not args.force:
-                        print (f"🧼 Purging user {comp_user} from {serial}:{comp_name}")
-                        if args.force or input("Purge user (Y/N): ").strip().lower() == "y":
-                           if clear_user_from_inventory(token, comp_id):
-                            print(f"Clearing {comp_user} from {serial}:{comp_name}")
-                            inventory_user_updated += 1
-            
-            if serial in preload_computers:
-                plcomp = preload_computers[serial]
-                preload_name = plcomp.get("ea_reported", "").strip()
-                preload_id = plcomp.get("mac_id", "").strip()
-                preload_asset = plcomp.get("asset", "").strip()
-                preload_user = plcomp.get("username", "").strip()
-                
-            
-                if (google_name != preload_name) or (username != preload_user) or (preload_asset != asset):
-                    if username:
-                        ldap_info = ldap_lookup(token, username) if username else None
-                        ldap_full_name = ldap_info['full_name'] if username else None
-                        ldap_email = ldap_info['email'] if username else None
-                        print(f"🔄 Preload Rename needed: {preload_id}:{preload_name}:{serial} assigned to user {preload_user} | '{preload_name}' → '{google_name}' assigned to user '{username}'")
-                         
-                        if args.verbose or not args.force:
-                            if args.force or input(f"Update Preload Record? (Y/N): ").strip().lower() == "y":
-                                if preload_update(token, preload_id, serial, google_name, username, ldap_full_name, ldap_email, asset):
-                                    print (f"Updating preload record for {preload_name}: {serial}")
-                                    preload_record_updated += 1
-                                    
-                    else:    
-                        print(f"🔄 Preload Rename needed: {preload_id}: {serial} | '{preload_name}' → '{google_name}'")
-                        if args.verbose or not args.force:
-                            if args.force or input(f"Update Preload Record? (Y/N): ").strip().lower() == "y":
-                                if preload_update(token, preload_id, serial, google_name, None, None, None, asset):
-                                    print (f"Updating preload record for {preload_name}: {serial}")
-                                    preload_record_updated += 1
-                                    
-
-    
-            else:
-                
-                print(f"❌ Preload doesn't exist for {serial}.")
-                if username:
-                    ldap_info = ldap_lookup(token, username) if username else None
-                    ldap_full_name = ldap_info['full_name'] if username else None
-                    ldap_email = ldap_info['email'] if username else None
-                    if args.verbose or not args.force:
-                        if args.force or input(f"Create Preload Record for {serial} for user {username}: {ldap_full_name}? (Y/N): ").strip().lower() == "y":
-                            if create_preload(token, serial, google_name, username, ldap_full_name, ldap_email, asset):
-                                print (f"Creating inventory record for {preload_name}: {serial}")
-                                preload_record_created += 1
+        comp = jamf_computers.get(serial)
+        preload = preload_computers.get(serial)
+        
+        # Inventory rename logic
+        if comp:
+            comp_id = comp["mac_id"]
+            current_name = comp["name"]
+            if google_name != current_name:
+                verbose_log(serial, google_name, username, asset)
+                print(f"   🔄 Rename: '{current_name}' → '{google_name}'")
+                if args.dry_run:
+                    continue
+                if args.force or input("Rename? (Y/N): ").lower() == "y":
+                    if inventory_rename(token, comp_id, google_name):
+                        updates["inventory_name_updated"] += 1
+                        update_static_group(STATIC_GROUP_ID, token, comp_id, "add")
+                        
+                        # Static group cleanup
+            if comp["ea_reported"] == google_name and comp["static_group"]:
+                if args.dry_run:
+                    print(f"Dry-run: Remove {serial} from static group")
                 else:
-                    if args.verbose or not args.force:
-                        if args.force or input("Create Preload Record? (Y/N): ").strip().lower() == "y":
-                            if create_preload(token, serial, google_name, None, None, None, asset):
-                                print (f"Creating preload record for {preload_name}: {serial}")
-                                preload_record_created += 1
+                    update_static_group(STATIC_GROUP_ID, token, comp_id, "remove")
+                    
+                    # User assignment
+            if username != comp["username"]:
+                ldap = ldap_lookup(token, username) if username else None
+                if not username and comp["username"]:
+                    verbose_log(serial, google_name, username, asset)
+                    print(f"   🧼 Clearing user: '{comp['username']}' → ''")
+                    if not args.dry_run and (args.force or input("Clear user? (Y/N): ").lower() == "y"):
+                        if clear_user_from_inventory(token, comp_id):
+                            updates["inventory_user_updated"] += 1
+                elif username:
+                    verbose_log(serial, google_name, username, asset)
+                    print(f"   🔄 Assign user: '{comp['username']}' → '{username}' {ldap['full_name']}")
+                    if not args.dry_run and ldap and (args.force or input("Assign user? (Y/N): ").lower() == "y"):
+                            if assign_user_from_inventory(token, comp_id, username, ldap["full_name"], ldap["email"]):
+                                updates["inventory_user_updated"] += 1
+                            
+        # Preload update logic
+        if preload:
+            changed = (
+                google_name != preload["ea_reported"] or
+                username != preload["username"] or
+                asset != preload["asset"]
+            )
+            if changed:
+                ldap = ldap_lookup(token, username) if username else None
+                verbose_log(serial, google_name, username, asset)
+                if args.dry_run:
+                    print("   ✏️  Preload update:")
+                    if google_name != preload["ea_reported"]:
+                        print(f"     - Name: '{preload['ea_reported']}' → '{google_name}'")
+                    if username != preload["username"]:
+                        print(f"     - Username: '{preload['username']}' → '{username}'")
+                    if asset != preload["asset"]:
+                        print(f"     - Asset Tag: '{preload['asset']}' → '{asset}'")
+                elif args.force or input(f"Update preload for {serial}? (Y/N): ").lower() == "y":
+                    if preload_update(token, preload["mac_id"], serial, google_name, username,
+                                      ldap["full_name"] if ldap else "", ldap["email"] if ldap else "", asset):
+                        updates["preload_record_updated"] += 1
+        else:
+            ldap = ldap_lookup(token, username) if username else None
+            verbose_log(serial, google_name, username, asset)
+            if args.dry_run:
+                verbose_log(serial, google_name, username, asset)
+                print("   ➕ Creating preload record (did not exist previously)")
+            elif args.force or input(f"Create preload for {serial}? (Y/N): ").lower() == "y":
+                if create_preload(token, serial, google_name, username,
+                                  ldap["full_name"] if ldap else "", ldap["email"] if ldap else "", asset):
+                    updates["preload_record_created"] += 1
                 
-    print(f"Jamf Inventory Name Updates: {inventory_name_updated}")  
-    print(f"Jamf User Updates: {inventory_user_updated}")
-    print(f"Preload Inventory Updates: {preload_record_updated}")
-    print(f"Preload Inventory Created: {preload_record_created}")
-                
-                
+    print("\nSummary:")
+    for k, v in updates.items():
+        print(f"{k.replace('_', ' ').title()}: {v}")
+        
 if __name__ == "__main__":
-	main()
+    main()
+    
