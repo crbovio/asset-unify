@@ -207,14 +207,19 @@ def ldap_lookup(token, username):
     try:
         root = ET.fromstring(resp.text)
         for user in root.findall("ldap_user"):
-            return {
-                "username": user.findtext("username") or "",
-                "full_name": user.findtext("realname") or user.findtext("real_name") or "",
-                "email": user.findtext("email_address") or ""
-            }
+            # Enforce exact match on username
+            found_username = user.findtext("username") or ""
+            if found_username.lower() == username.lower():
+                return {
+                    "username": found_username,
+                    "full_name": user.findtext("realname") or user.findtext("real_name") or "",
+                    "email": user.findtext("email_address") or ""
+                }
+        return None  # If no exact match found
     except Exception as e:
         print(f"❌ LDAP parse error: {e}")
         return None
+    
     
 def inventory_rename(token, comp_id, new_name):
     url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
