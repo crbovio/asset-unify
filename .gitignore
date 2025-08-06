@@ -2,3 +2,4 @@ config.json
 .venv
 venv
 py_envs
+.DS_Store
