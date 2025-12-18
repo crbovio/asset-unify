@@ -2,4 +2,7 @@ config.json
 .venv
 venv
 py_envs
+dist
+build
+asset_unify.spec
 .DS_Store

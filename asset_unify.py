@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import json
 import xml.etree.ElementTree as ET
@@ -22,7 +20,17 @@ def verbose_log(serial, name, username, asset, label="▶"):
     print(f"   ↪ Asset Tag : {asset}")
 
 # Load config
-with open("config.json") as f:
+def resource_path(relative_path):
+    """Get absolute path to resource for PyInstaller."""
+    if hasattr(sys, '_MEIPASS'):
+        # Running as PyInstaller bundle
+        return os.path.join(sys._MEIPASS, relative_path)
+    # Running as script
+    return os.path.join(os.path.abspath("."), relative_path)
+
+config_path = resource_path("config.json")
+
+with open(config_path, "r") as f:
     config = json.load(f)
 
 GOOGLE_KEYCHAIN_SERVICE = config["GOOGLE_KEYCHAIN_SERVICE"]
@@ -35,6 +43,7 @@ JAMF_KEYCHAIN_SERVICE = config["JAMF_KEYCHAIN_SERVICE"]
 PRELOAD_NAME_EA_ID = 52
 JAMF_LDAP_SERVER_ID = config["JAMF_LDAP_SERVER_ID"]
 STATIC_GROUP_ID = config["STATIC_GROUP_ID"]
+POLICY_ID = config["POLICY_ID"]
 
 
 def load_google_credentials():
@@ -371,6 +380,18 @@ def update_static_group(group_id, token, comp_id, action):
     else:
         print(f"ℹ️ {comp_id} already correct in group {group_id}")
         
+def flush_static_logs(policy_id, token):
+    url = f"{JAMF_URL}/JSSResource/logflush/policy/id/{policy_id}/interval/Zero+Days"
+    
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/xml"
+    }
+    response = requests.delete(url, headers=headers)
+    
+    print(response.text)
+        
 # --------------- MAIN LOGIC --------------------------
         
 def main():
@@ -478,6 +499,8 @@ def main():
     print("\nSummary:")
     for k, v in updates.items():
         print(f"{k.replace('_', ' ').title()}: {v}")
+        
+    flush_static_logs(POLICY_ID, token)
         
 if __name__ == "__main__":
     main()
