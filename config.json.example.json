@@ -1,13 +1,15 @@
 {
-"GOOGLE_KEYCHAIN_SERVICE": "google_keychain_service_name",
-"GOOGLE_KEYCHAIN_USER": "google_api_user",
-"SPREADSHEET_ID": "https://docs.google.com/spreadsheets/d/THIS_PORTION_HERE/edit?gid=0#gid=0",
-"SHEET_NAME": "Sheet1",
+"GOOGLE_KEYCHAIN_SERVICE": "GoogleSheetsAPI",
+"GOOGLE_KEYCHAIN_USER": "google-api-user",
+"SPREADSHEET_ID": "42lif6x5yBMu-Blyw3r4345y435t3dvAB",
+"SHEET_NAME": "All Macs",
 "SCOPES": ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-"JAMF_URL": "https://your_jamf_url.jamfcloud.com",
-"JAMF_KEYCHAIN_SERVICE": "jamf_keychain_service_name",
-"STATIC_GROUP_ID": "static_group_id_number",
-"EXTENSION_ATTRIBUTE_NAME": "EA Computer Name",
-"JAMF_LDAP_SERVER_ID": "ldap_server_id",
-"LOG_FILE": "/Library/Logs/asset_unify.log"
+"JAMF_URL": "https://yourinstance.jamfcloud.com",
+"JAMF_KEYCHAIN_SERVICE": "jamf_api_asset_updater",
+"STATIC_GROUP_ID": "111",
+"REPORTED_NAME_EXTENSION_ATTRIBUTE_NAME": "Local Computer Name",
+"PRELOAD_NAME_EXTENSION_ATTRIBUTE_NAME": "Preload Name",
+"JAMF_LDAP_SERVER_ID": 1,
+"LOG_FILE": "/Library/Logs/asset_unify.log",
+"POLICY_ID": "123"
 }
