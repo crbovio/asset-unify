@@ -39,6 +39,10 @@ The functions of this service are as follows:
 ## Dry Run
   - only prints, does not make any changes
 
+# Google Credentials
+This service uses Google Sheets API. Once you've gotten your API credentials as a JSON file, save the JSON to macOS Keychain using something like Keyring.
+  - python -m keyring set "GOOGLE_KEYCHAIN_SERVICE" "GOOGLE_KEYCHAIN_USER" < path/to/credentials.json
+
 # Google Sheet Requirements
 The spreadsheet should contain the following headers:
 Serial Number - required
@@ -93,5 +97,6 @@ Scope "EA_Computer Name2" to the Smart Group "Newly Enrolled, preload EA not rep
     - Maintenance - "Update Inventory" + "Reset Computer Names"
     - Scoped to asset-unify-group
 
-  ## LDAP Server Configured - set ID in config.json
+  ## LDAP Server Configured 
+    - set ID in config.json
     
