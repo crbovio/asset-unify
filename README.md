@@ -52,6 +52,10 @@ Asset Tag - optional
   - Asset tag value
 
 # Jamf Requirements
+## API Client
+  - Create an API role with the following Privileges:
+    Read LDAP Servers, Delete Policies, Update Static Computer Groups, Read Computers, Delete Inventory Preload Records, Flush Policy Logs, Read Retention Policy, Read Static Computer Groups, Update Retention Policy, View Event Logs, Read Inventory Preload Records, Update Computers, Update Inventory Preload Records, Assign Users to Computers, Update User, Create Computers, Allow User to Enroll, Create Inventory Preload Records
+  - Create a client ID and secret, save in Apple keychain.
 ## Static Group
   - Create a static group and name it asset-unify-group. Set ID of this Static Group in config.json.
 ## Smart Groups
@@ -88,4 +92,6 @@ Scope "EA_Computer Name2" to the Smart Group "Newly Enrolled, preload EA not rep
     - Recurring checkin, once per computer
     - Maintenance - "Update Inventory" + "Reset Computer Names"
     - Scoped to asset-unify-group
+
+  ## LDAP Server Configured - set ID in config.json
     
