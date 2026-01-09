@@ -251,6 +251,13 @@ def clear_user_from_inventory(token, comp_id):
     resp = requests.patch(url, headers=headers, json=payload)
     return resp.status_code in (200, 204)
 
+def asset_set(token, comp_id, new_tag):
+    url = f"{JAMF_URL}/api/v1/computers-inventory-detail/{comp_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = { "general": { "assetTag": new_tag } }
+    resp = requests.patch(url, headers=headers, json=payload)
+    return resp.status_code in (200, 204)
+
 # --------------- PRELOAD OPS -------------------------
 
 def preload_update(token, preload_id, serial, name, username, full_name, email, asset):
@@ -428,6 +435,7 @@ def main():
         if comp:
             comp_id = comp["mac_id"]
             current_name = comp["name"]
+            current_asset = comp["asset"]
             if google_name != current_name:
                 verbose_log(serial, google_name, username, asset)
                 print(f"   🔄 Rename: '{current_name}' → '{google_name}'")
@@ -437,6 +445,14 @@ def main():
                     if inventory_rename(token, comp_id, google_name):
                         updates["inventory_name_updated"] += 1
                         update_static_group(STATIC_GROUP_ID, token, comp_id, "add")
+                        
+            if asset != current_asset:
+                verbose_log(serial, google_name, username, asset)
+                print(f"   🔄 Retag: '{current_asset}' → '{asset}'")
+                if args.dry_run:
+                    continue
+                if args.force or input("Retag? (Y/N): ").lower() == "y":
+                    asset_set(token, comp_id, asset)
                         
                         # Static group cleanup
             if comp["ea_reported"] == google_name and comp["static_group"]:
@@ -456,11 +472,20 @@ def main():
                             updates["inventory_user_updated"] += 1
                 elif username:
                     verbose_log(serial, google_name, username, asset)
-                    print(f"   🔄 Assign user: '{comp['username']}' → '{username}' {ldap['full_name']}")
-                    if not args.dry_run and ldap and (args.force or input("Assign user? (Y/N): ").lower() == "y"):
+                    
+                    if not ldap:
+                        if comp["username"]:
+                            print(f"   ⚠️ LDAP user '{username}' not found — clearing existing inventory user '{comp['username']}'")
+                            if not args.dry_run and (args.force or input("Clear user? (Y/N): ").lower() == "y"):
+                                if clear_user_from_inventory(token, comp_id):
+                                    updates["inventory_user_updated"] += 1
+                        else:
+                            print(f"   ℹ️ LDAP user '{username}' not found and no inventory user is set")
+                    else:
+                        print(f"   🔄 Assign user: '{comp['username']}' → '{username}' {ldap['full_name']}")
+                        if not args.dry_run and (args.force or input("Assign user? (Y/N): ").lower() == "y"):
                             if assign_user_from_inventory(token, comp_id, username, ldap["full_name"], ldap["email"]):
-                                updates["inventory_user_updated"] += 1
-                            
+                                updates["inventory_user_updated"] += 1                            
         # Preload update logic
         if preload:
             changed = (
@@ -470,7 +495,20 @@ def main():
             )
             if changed:
                 ldap = ldap_lookup(token, username) if username else None
-                verbose_log(serial, google_name, username, asset)
+                
+                # If username exists but LDAP does not match, clear preload user fields
+                if username and not ldap:
+                    print(f"   ⚠️ LDAP user '{username}' not found — clearing preload user info")
+                    username_for_preload = ""
+                    full_name_for_preload = ""
+                    email_for_preload = ""
+                else:
+                    username_for_preload = username
+                    full_name_for_preload = ldap["full_name"] if ldap else ""
+                    email_for_preload = ldap["email"] if ldap else ""
+                    
+                verbose_log(serial, google_name, username_for_preload, asset)
+                
                 if args.dry_run:
                     print("   ✏️  Preload update:")
                     if google_name != preload["ea_reported"]:
@@ -480,8 +518,16 @@ def main():
                     if asset != preload["asset"]:
                         print(f"     - Asset Tag: '{preload['asset']}' → '{asset}'")
                 elif args.force or input(f"Update preload for {serial}? (Y/N): ").lower() == "y":
-                    if preload_update(token, preload["mac_id"], serial, google_name, username,
-                                      ldap["full_name"] if ldap else "", ldap["email"] if ldap else "", asset):
+                    if preload_update(
+                        token,
+                        preload["mac_id"],
+                        serial,
+                        google_name,
+                        username_for_preload,
+                        full_name_for_preload,
+                        email_for_preload,
+                        asset
+                    ):
                         print("✅ Preload update succeeded.")
                         updates["preload_record_updated"] += 1
         else:
